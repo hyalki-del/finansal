@@ -161,12 +161,12 @@
         }
     </style>
 </head>
-<body onload="fetchMacroInterestRate()">
+<body onload="initializeAppData()">
 
 <div class="container">
     <header>
         <h1>Finans ve Döviz Analiz Aracı</h1>
-        <p>Otomatik pipeline entegrasyonlu bugünkü değer ve döviz hesaplama arayüzü.</p>
+        <p>GitHub Actions Pipeline destekli otomatik faiz ve döviz hesaplama altyapısı.</p>
     </header>
 
     <div class="grid">
@@ -178,9 +178,9 @@
                     <label for="interestRate">Yıllık Faiz Oranı (%)</label>
                     <div class="input-row">
                         <input type="number" id="interestRate" step="0.01" value="37.00" placeholder="ör. 37.00">
-                        <button type="button" class="btn-secondary" onclick="fetchMacroInterestRate()">Yenile</button>
+                        <button type="button" class="btn-secondary" onclick="loadFinancialData()">Yenile</button>
                     </div>
-                    <small style="color: var(--text-muted); font-size: 0.75rem;" id="rateSourceInfo">Otomatik veri bekleniyor...</small>
+                    <small style="color: var(--text-muted); font-size: 0.75rem;" id="rateSourceInfo">Veriler yükleniyor...</small>
                 </div>
                 <div class="form-group">
                     <label for="installmentMonths">Taksit Sayısı (Ay)</label>
@@ -223,34 +223,32 @@
 </div>
 
 <script>
-    // Pipeline tarafından otomatik oluşturulan JSON dosyasını okuyan gerçek zamanlı fonksiyon
-    async function fetchMacroInterestRate() {
+    // Global variable to cache pipeline-fetched data across the app lifecycle
+    let globalFinancialData = null;
+
+    async function initializeAppData() {
+        await loadFinancialData();
+    }
+
+    // Loads both macro interest rate and background-fetched EUR rate from pipeline JSON
+    async function loadFinancialData() {
         const rateInput = document.getElementById('interestRate');
         const sourceInfo = document.getElementById('rateSourceInfo');
-        
-        sourceInfo.textContent = "Güncel veriler kontrol ediliyor...";
 
         try {
-            // repository içerisindeki otomatik güncellenen JSON verisini çeker
-            const response = await fetch('./data/interest_rate.json');
-            
-            if (!response.ok) {
-                throw new Error('Veri dosyası henüz oluşturulmadı.');
+            const response = await fetch('./data/financial_indicators.json');
+            if (!response.ok) throw new Error('Pipeline verisi bulunamadı.');
+
+            globalFinancialData = await response.json();
+
+            if (globalFinancialData && typeof globalFinancialData.interest_rate === 'number') {
+                rateInput.value = globalFinancialData.interest_rate.toFixed(2);
+                sourceInfo.textContent = `Pipeline Güncellemesi: %${globalFinancialData.interest_rate}`;
             }
-
-            const data = await response.json();
-
-            if (data && typeof data.rate === 'number') {
-                rateInput.value = data.rate.toFixed(2);
-                sourceInfo.textContent = `Güncellendi: ${data.source || 'Otomatik Sistem'} (${data.rate}%)`;
-            } else {
-                throw new Error('Geçersiz veri formatı.');
-            }
-
         } catch (error) {
-            console.warn("Pipeline verisi alınamadı, varsayılan değer kullanılıyor:", error);
+            console.warn("Pipeline verisi yüklenemedi, varsayılan değer kullanılıyor:", error);
             rateInput.value = "37.00";
-            sourceInfo.textContent = "Varsayılan faiz oranı uygulandı (%37.00).";
+            sourceInfo.textContent = "Varsayılan oran kullanılıyor (%37.00).";
         }
     }
 
@@ -283,7 +281,7 @@
         outputBox.style.display = 'block';
     }
 
-    // Özellik 2: Canlı API Bağlantısı ile EUR / TRY Dönüşümü
+    // Özellik 2: Pipeline Arka Plan Verisi ile EUR / TRY Dönüşümü
     async function calculateEurConversion() {
         const priceEurInput = parseFloat(document.getElementById('priceEur').value);
         const outputBox = document.getElementById('outputFeature2');
@@ -295,30 +293,25 @@
             return;
         }
 
-        resultDisplay.textContent = "Canlı kurlar alınıyor...";
         outputBox.style.display = 'block';
 
-        try {
-            const response = await fetch('https://open.er-api.com/v6/latest/EUR');
-            const data = await response.json();
+        // Use background pipeline rate if available, otherwise fallback to live API or constant
+        let eurToTryRate = (globalFinancialData && globalFinancialData.eur_to_try) ? globalFinancialData.eur_to_try : null;
 
-            if (data && data.rates && data.rates.TRY) {
-                const eurToTryRate = data.rates.TRY;
-                const adjustedValue = (priceEurInput / 1.19) * eurToTryRate;
-
-                resultDisplay.textContent = new Intl.NumberFormat('tr-TR', { style: 'currency', currency: 'TRY' }).format(adjustedValue);
-                rateInfo.textContent = `Uygulanan Kur: 1 EUR = ${eurToTryRate.toFixed(4)} TRY | Formül: (${priceEurInput} € / 1.19) * ${eurToTryRate.toFixed(4)}`;
-            } else {
-                throw new Error('Döviz kuru verisine ulaşılamadı.');
+        if (!eurToTryRate) {
+            try {
+                const response = await fetch('https://open.er-api.com/v6/latest/EUR');
+                const data = await response.json();
+                eurToTryRate = data.rates.TRY;
+            } catch (e) {
+                eurToTryRate = 38.50; // Ultimate safety fallback
             }
-        } catch (error) {
-            console.error('API Hatası:', error);
-            const fallbackRate = 38.50; 
-            const adjustedValue = (priceEurInput / 1.19) * fallbackRate;
-            
-            resultDisplay.textContent = new Intl.NumberFormat('tr-TR', { style: 'currency', currency: 'TRY' }).format(adjustedValue);
-            rateInfo.textContent = `API uyarısı: Yedek kur kullanıldı (1 EUR = ${fallbackRate} TRY).`;
         }
+
+        const adjustedValue = (priceEurInput / 1.19) * eurToTryRate;
+
+        resultDisplay.textContent = new Intl.NumberFormat('tr-TR', { style: 'currency', currency: 'TRY' }).format(adjustedValue);
+        rateInfo.textContent = `Uygulanan Kur: 1 EUR = ${eurToTryRate.toFixed(4)} TRY | Formül: (${priceEurInput} € / 1.19) * ${eurToTryRate.toFixed(4)}`;
     }
 </script>
 
