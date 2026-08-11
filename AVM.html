@@ -161,12 +161,12 @@
         }
     </style>
 </head>
-<body>
+<body onload="fetchMacroInterestRate()">
 
 <div class="container">
     <header>
         <h1>Finans ve Döviz Analiz Aracı</h1>
-        <p>Güncel TCMB faiz oranları entegrasyonu ve anlık döviz dönüşüm altyapısı.</p>
+        <p>Otomatik pipeline entegrasyonlu bugünkü değer ve döviz hesaplama arayüzü.</p>
     </header>
 
     <div class="grid">
@@ -178,9 +178,9 @@
                     <label for="interestRate">Yıllık Faiz Oranı (%)</label>
                     <div class="input-row">
                         <input type="number" id="interestRate" step="0.01" value="37.00" placeholder="ör. 37.00">
-                        <button type="button" class="btn-secondary" onclick="fetchMacroInterestRate()">Güncel Çek</button>
+                        <button type="button" class="btn-secondary" onclick="fetchMacroInterestRate()">Yenile</button>
                     </div>
-                    <small style="color: var(--text-muted); font-size: 0.75rem;" id="rateSourceInfo">TCMB Politika Faizi baz alınmıştır.</small>
+                    <small style="color: var(--text-muted); font-size: 0.75rem;" id="rateSourceInfo">Otomatik veri bekleniyor...</small>
                 </div>
                 <div class="form-group">
                     <label for="installmentMonths">Taksit Sayısı (Ay)</label>
@@ -223,32 +223,34 @@
 </div>
 
 <script>
-    // Asenkron olarak güncel Türkiye faiz oranını (TCMB politika faizi) çeken fonksiyon
+    // Pipeline tarafından otomatik oluşturulan JSON dosyasını okuyan gerçek zamanlı fonksiyon
     async function fetchMacroInterestRate() {
         const rateInput = document.getElementById('interestRate');
         const sourceInfo = document.getElementById('rateSourceInfo');
-
-        sourceInfo.textContent = "Güncel oran sorgulanıyor...";
+        
+        sourceInfo.textContent = "Güncel veriler kontrol ediliyor...";
 
         try {
-            // Not: Resmi TCMB API'leri CORS kısıtlamasına sahip olduğu için,
-            // güncel finansal veri tabanı akışını simgeleyen güvenli bir CORS proxy veya
-            // güncel TCMB politika faizi verisini sunan endpoint simülasyonu kullanılır.
-            const response = await fetch('https://open.er-api.com/v6/latest/EUR'); // Bağlantı testi için açık endpoint
+            // repository içerisindeki otomatik güncellenen JSON verisini çeker
+            const response = await fetch('./data/interest_rate.json');
+            
+            if (!response.ok) {
+                throw new Error('Veri dosyası henüz oluşturulmadı.');
+            }
 
-            // Gerçek senaryoda buraya TCMB EVDS veya proxy servisiniz bağlanır.
-            // Güncel TCMB politika faizi referans değeri: %37.00
-            const currentTcmbRate = 37.00;
+            const data = await response.json();
 
-            setTimeout(() => {
-                rateInput.value = currentTcmbRate.toFixed(2);
-                sourceInfo.textContent = `Güncellendi: TCMB Politika Faizi (%${currentTcmbRate})`;
-            }, 300);
+            if (data && typeof data.rate === 'number') {
+                rateInput.value = data.rate.toFixed(2);
+                sourceInfo.textContent = `Güncellendi: ${data.source || 'Otomatik Sistem'} (${data.rate}%)`;
+            } else {
+                throw new Error('Geçersiz veri formatı.');
+            }
 
         } catch (error) {
-            console.error("Faiz çekme hatası:", error);
+            console.warn("Pipeline verisi alınamadı, varsayılan değer kullanılıyor:", error);
             rateInput.value = "37.00";
-            sourceInfo.textContent = "Varsayılan güncel oran uygulandı (%37.00).";
+            sourceInfo.textContent = "Varsayılan faiz oranı uygulandı (%37.00).";
         }
     }
 
@@ -271,7 +273,7 @@
 
         let presentValue;
         if (r === 0) {
-            presentValue = totalPrice;
+            presentValue = totalPrice; 
         } else {
             presentValue = monthlyPayment * ((1 - Math.pow(1 + r, -months)) / r);
         }
@@ -311,9 +313,9 @@
             }
         } catch (error) {
             console.error('API Hatası:', error);
-            const fallbackRate = 38.50;
+            const fallbackRate = 38.50; 
             const adjustedValue = (priceEurInput / 1.19) * fallbackRate;
-
+            
             resultDisplay.textContent = new Intl.NumberFormat('tr-TR', { style: 'currency', currency: 'TRY' }).format(adjustedValue);
             rateInfo.textContent = `API uyarısı: Yedek kur kullanıldı (1 EUR = ${fallbackRate} TRY).`;
         }
