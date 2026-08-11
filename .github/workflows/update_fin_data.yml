@@ -1,0 +1,34 @@
+name: Weekly Financial Data Pipeline
+
+on:
+  schedule:
+    - cron: '0 8 * * 1' # Every Monday morning at 08:00 UTC
+  workflow_dispatch: # Allows manual trigger from the Actions tab
+
+permissions:
+  contents: write
+
+jobs:
+  sync-data:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+
+      - name: Install Dependencies
+        run: pip install requests beautifulsoup4
+
+      - name: Run Data Fetcher Script
+        run: python fetch_financial_data.py
+
+      - name: Commit and Push Changes
+        run: |
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "github-actions[bot]@users.noreply.github.com"
+          git add data/financial_indicators.json
+          git diff --quiet && git diff --staged --quiet || (git commit -m "chore: auto-update financial indicators dataset [skip ci]" && git push)
